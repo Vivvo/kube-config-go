@@ -61,7 +61,7 @@ func settingsDialog() (*widgets.QDialog) {
 func switchNamespace(ctx string, namespace string) {
 	args := []string{
 		"set-context",
-		"ctx",
+		ctx,
 		fmt.Sprintf("--namespace=\"%s\"", namespace),
 	}
 	cmd := exec.Command(getKubeCtl(), args...)
@@ -69,7 +69,7 @@ func switchNamespace(ctx string, namespace string) {
 }
 
 //RGC: https://github.com/ahmetb/kubectx/blob/master/kubens
-func currentContext() {
+func getCurrentContext() string{
 	args := []string{
 		"config",
 		"current-context",
@@ -77,8 +77,25 @@ func currentContext() {
 	cmd := exec.Command(getKubeCtl(), args...)
 	out, err := cmd.Output()
 	if err == nil {
-		fmt.Printf("%s", out)
+		fmt.Printf("current-context: %s", out)
 	}
+	return strings.TrimSuffix(string(out), "\n")
+}
+
+func getCurrentNamespace() string{
+	args := []string{
+		"config",
+		"view",
+		"--minify",
+		"--output",
+		"jsonpath={..namespace}",
+	}
+	cmd := exec.Command(getKubeCtl(), args...)
+	out, err := cmd.Output()
+	if err == nil {
+		fmt.Printf("current-namespace: %s\n", out)
+	}
+	return strings.TrimSuffix(string(out), "\n")
 }
 
 //RGC: https://github.com/ahmetb/kubectx/blob/master/kubens
@@ -102,9 +119,11 @@ func getNamespaces(cluster string) []string {
 	return objs
 }
 
-func setupMenu() (*widgets.QMenu) {
+func setupMenu() *widgets.QMenu {
 	menu := widgets.NewQMenu(nil)
-
+	currentContext := getCurrentContext()
+	currentNamespace := getCurrentNamespace()
+	fmt.Printf("%s,%s\n",currentContext,currentNamespace)
 	b, err := ioutil.ReadFile(getKubeConfigPath())
 
 	if err == nil {
@@ -112,16 +131,23 @@ func setupMenu() (*widgets.QMenu) {
 		yaml.Unmarshal(b, &config)
 
 		for _, cluster := range config.Clusters {
-			submenu := widgets.NewQMenu2(cluster.Name,nil)
-			namespaces := getNamespaces(cluster.Name)
-
-			for _,namespace := range namespaces{
-				submenu.AddAction(namespace)
+			submenu := widgets.NewQMenu2(cluster.Name, nil)
+			if cluster.Name == currentContext{
+				submenu.SetStyleSheet("font-weight:bold;color:red")
 			}
+			namespaces := getNamespaces(cluster.Name)
+			for _, namespace := range namespaces {
+				action := submenu.AddAction(namespace)
+				if cluster.Name == currentContext && namespace == currentNamespace{
+					action.SetChecked(true)
+				}
+				action.SetData(core.NewQVariant12(cluster.Name))
+			}
+			submenu.ConnectTriggered(func(action *widgets.QAction) {
+				fmt.Printf("%v - %v",action.Data().ToString(),action.Text())
+			})
 			menu.AddMenu(submenu)
-			fmt.Printf("%+v",getNamespaces(cluster.Name))
 		}
-
 		menu.AddSeparator()
 		menu.AddAction("Settings").ConnectTriggered(func(checked bool) {
 
@@ -171,18 +197,11 @@ func main() {
 	kubeSystemWatcher := core.NewQFileSystemWatcher(nil)
 	kubeSystemWatcher.AddPath(getKubeConfigPath())
 	kubeSystemWatcher.ConnectFileChanged(func(path string) {
-		fmt.Printf("directory changed: %s\n", path)
+		fmt.Printf("file changed: %s\n", path)
 		menu := setupMenu()
 		systemTray.SetContextMenu(menu)
 	})
 
-	fileSystemWatcher := core.NewQFileSystemWatcher(nil)
-	fileSystemWatcher.AddPath(getPath())
-	fileSystemWatcher.ConnectDirectoryChanged(func(path string) {
-		fmt.Printf("directory changed: %s\n", path)
-		menu := setupMenu()
-		systemTray.SetContextMenu(menu)
-	})
 
 	qApp.Exec()
 }
