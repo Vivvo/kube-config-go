@@ -45,15 +45,15 @@ type KubeConfigStruct struct {
 	} `yaml:"users"`
 }
 
-func getKubeCtl() (string) {
+func getKubeCtl() string {
 	if strings.Contains(core.NewQSysInfoFromPointer(nil).ProductType(), "win") {
-		return "kubectl.ext"
+		return "kubectl.exe"
 	} else {
 		return "kubectl"
 	}
 }
 
-func settingsDialog() (*widgets.QDialog) {
+func settingsDialog() *widgets.QDialog {
 	return widgets.NewQDialog(nil, core.Qt__Dialog)
 }
 
@@ -69,7 +69,7 @@ func switchNamespace(ctx string, namespace string) {
 }
 
 //RGC: https://github.com/ahmetb/kubectx/blob/master/kubens
-func getCurrentContext() string{
+func getCurrentContext() string {
 	args := []string{
 		"config",
 		"current-context",
@@ -82,7 +82,7 @@ func getCurrentContext() string{
 	return strings.TrimSuffix(string(out), "\n")
 }
 
-func getCurrentNamespace() string{
+func getCurrentNamespace() string {
 	args := []string{
 		"config",
 		"view",
@@ -112,18 +112,17 @@ func getNamespaces(cluster string) []string {
 		output := strings.Split(string(out), "\n")
 		for i, o := range output {
 			if i != 0 {
-				objs = append(objs, strings.Split(o," ")[0])
+				objs = append(objs, strings.Split(o, " ")[0])
 			}
 		}
 	}
 	return objs
 }
 
-func setupMenu() *widgets.QMenu {
+func setupMenu(qApp *widgets.QApplication) *widgets.QMenu {
 	menu := widgets.NewQMenu(nil)
 	currentContext := getCurrentContext()
 	currentNamespace := getCurrentNamespace()
-	fmt.Printf("%s,%s\n",currentContext,currentNamespace)
 	b, err := ioutil.ReadFile(getKubeConfigPath())
 
 	if err == nil {
@@ -132,19 +131,27 @@ func setupMenu() *widgets.QMenu {
 
 		for _, cluster := range config.Clusters {
 			submenu := widgets.NewQMenu2(cluster.Name, nil)
-			if cluster.Name == currentContext{
-				submenu.SetStyleSheet("font-weight:bold;color:red")
+			if cluster.Name == currentContext {
+				fmt.Printf("current clustername: %s vs cluster: %s\n", currentContext, cluster.Name)
+				submenu.SetStyleSheet("QMenu{font-weight:bold;color:red}")
 			}
 			namespaces := getNamespaces(cluster.Name)
 			for _, namespace := range namespaces {
 				action := submenu.AddAction(namespace)
-				if cluster.Name == currentContext && namespace == currentNamespace{
+				fmt.Printf("current namespace: %s vs cluster namespace: %s\n", currentNamespace, namespace)
+				if cluster.Name == currentContext && namespace == currentNamespace {
 					action.SetChecked(true)
 				}
 				action.SetData(core.NewQVariant12(cluster.Name))
 			}
+
+			//RGC: Please note I could have done this with
+			//RGC: getting the parent and the name but I chose
+			//RGC: this way so that in theory we can add more
+			//RGC: attributes to data as we need to.
 			submenu.ConnectTriggered(func(action *widgets.QAction) {
-				fmt.Printf("%v - %v",action.Data().ToString(),action.Text())
+				fmt.Printf("%v - %v", action.Data().ToString(), action.Text())
+				switchNamespace(action.Data().ToString(),action.Text())
 			})
 			menu.AddMenu(submenu)
 		}
@@ -154,7 +161,7 @@ func setupMenu() *widgets.QMenu {
 		})
 
 		menu.AddAction("Exit").ConnectTriggered(func(checked bool) {
-			os.Exit(1)
+			qApp.Exit(1)
 		})
 
 		return menu
@@ -162,17 +169,7 @@ func setupMenu() *widgets.QMenu {
 	return menu
 }
 
-func getPath() (string) {
-	var path = ""
-	if strings.Contains(core.NewQSysInfoFromPointer(nil).ProductType(), "win") {
-		path = fmt.Sprintf("%s\\.kube-config-go", core.NewQStandardPathsFromPointer(nil).WritableLocation(core.QStandardPaths__ConfigLocation))
-	} else {
-		path = fmt.Sprintf("%s/.kube-config-go", core.NewQStandardPathsFromPointer(nil).WritableLocation(core.QStandardPaths__HomeLocation))
-	}
-	return path
-}
-
-func getKubeConfigPath() (string) {
+func getKubeConfigPath() string {
 	var path = ""
 	if strings.Contains(core.NewQSysInfoFromPointer(nil).ProductType(), "win") {
 		path = fmt.Sprintf("%s\\.kube\\config", core.NewQStandardPathsFromPointer(nil).WritableLocation(core.QStandardPaths__ConfigLocation))
@@ -185,23 +182,29 @@ func getKubeConfigPath() (string) {
 func main() {
 	qApp := widgets.NewQApplication(len(os.Args), os.Args)
 
-	if _, err := os.Stat(getPath()); os.IsNotExist(err) {
-		os.Mkdir(getPath(), 0777)
+	if _, err := os.Stat(getKubeConfigPath()); os.IsNotExist(err) {
+		panic("Cannot find config path")
 	}
 
 	systemTray := widgets.NewQSystemTrayIcon(nil)
 	systemTray.SetIcon(gui.NewQIcon5(":images/icon.svg"))
-	systemTray.SetContextMenu(setupMenu())
+	systemTray.SetContextMenu(setupMenu(qApp))
 	systemTray.SetVisible(true)
 
 	kubeSystemWatcher := core.NewQFileSystemWatcher(nil)
 	kubeSystemWatcher.AddPath(getKubeConfigPath())
 	kubeSystemWatcher.ConnectFileChanged(func(path string) {
 		fmt.Printf("file changed: %s\n", path)
-		menu := setupMenu()
+		menu := setupMenu(qApp)
 		systemTray.SetContextMenu(menu)
-	})
 
+		systemTray.ShowMessage(
+			"Kubectl Configuaration Changed",
+			fmt.Sprintf("The kubectl configuration changed.  The current context/namespace is: %s - %s",getCurrentContext(),getCurrentNamespace()),
+			widgets.QSystemTrayIcon__Information,
+			10000,
+			)
+	})
 
 	qApp.Exec()
 }
