@@ -58,14 +58,36 @@ func settingsDialog() *widgets.QDialog {
 }
 
 //RGC: https://github.com/ahmetb/kubectx/blob/master/kubens
-func switchNamespace(ctx string, namespace string) {
-	args := []string{
-		"set-context",
-		ctx,
-		fmt.Sprintf("--namespace=\"%s\"", namespace),
+func switchNamespace(ctx string, namespace string) error {
+	err := setContext(ctx)
+
+	if err == nil {
+		args := []string{
+			"config",
+			"set-context",
+			ctx,
+			"--namespace",
+			namespace,
+		}
+
+		cmd := exec.Command(getKubeCtl(), args...)
+
+		_, err = cmd.Output()
 	}
+	return err
+}
+
+func setContext(ctx string) error{
+	args := []string{
+		"config",
+		"use-context",
+		ctx,
+	}
+
 	cmd := exec.Command(getKubeCtl(), args...)
-	_, _ = cmd.Output()
+
+	_,err := cmd.Output()
+	return err
 }
 
 //RGC: https://github.com/ahmetb/kubectx/blob/master/kubens
@@ -112,7 +134,10 @@ func getNamespaces(cluster string) []string {
 		output := strings.Split(string(out), "\n")
 		for i, o := range output {
 			if i != 0 {
-				objs = append(objs, strings.Split(o, " ")[0])
+				str := strings.Split(o, " ")[0]
+				if !strings.Contains(str," ") && !strings.Contains(str,"\t"){
+					objs = append(objs,str)
+				}
 			}
 		}
 	}
@@ -150,8 +175,9 @@ func setupMenu(qApp *widgets.QApplication) *widgets.QMenu {
 			//RGC: this way so that in theory we can add more
 			//RGC: attributes to data as we need to.
 			submenu.ConnectTriggered(func(action *widgets.QAction) {
-				fmt.Printf("%v - %v", action.Data().ToString(), action.Text())
-				switchNamespace(action.Data().ToString(),action.Text())
+				ctx := action.Data().ToString()
+				name := action.Text()
+				switchNamespace(ctx,name)
 			})
 			menu.AddMenu(submenu)
 		}
@@ -160,9 +186,9 @@ func setupMenu(qApp *widgets.QApplication) *widgets.QMenu {
 
 		})
 
-		menu.AddAction("Exit").ConnectTriggered(func(checked bool) {
+		/*menu.AddAction("Exit").ConnectTriggered(func(checked bool) {
 			qApp.Exit(1)
-		})
+		})*/
 
 		return menu
 	}
