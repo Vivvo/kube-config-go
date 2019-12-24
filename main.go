@@ -43,6 +43,9 @@ func setupMenu(qApp *widgets.QApplication) *widgets.QMenu {
 		for _, cluster := range config.Clusters {
 			submenuAction := menu.AddAction(cluster.Name)
 			submenuAction.SetCheckable(true)
+			if cluster.Name == currentContext {
+				submenuAction.SetChecked(true)
+			}
 			submenu := widgets.NewQMenu2(cluster.Name,nil)
 			submenuAction.ConnectTriggered(func(triggered bool) {
 				//ctx := action.Data().ToString()
@@ -67,7 +70,6 @@ func setupMenu(qApp *widgets.QApplication) *widgets.QMenu {
 				})
 
 				if cluster.Name == currentContext && namespace == currentNamespace {
-
 					action.SetChecked(true)
 				}
 				action.SetData(core.NewQVariant12(cluster.Name))
